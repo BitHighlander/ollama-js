@@ -12,31 +12,22 @@ import type { CreateRequest, ProgressResponse } from './interfaces.js'
 export class Ollama extends OllamaBrowser {
   async encodeImage(image: Uint8Array | Buffer | string): Promise<string> {
     if (typeof image !== 'string') {
-      // image is Uint8Array or Buffer, convert it to base64
       return Buffer.from(image).toString('base64')
     }
     try {
       if (fs.existsSync(image)) {
-        // this is a filepath, read the file and convert it to base64
         const fileBuffer = await promises.readFile(resolve(image))
         return Buffer.from(fileBuffer).toString('base64')
       }
     } catch {
       // continue
     }
-    // the string may be base64 encoded
     return image
   }
 
-  /**
-   * Parse the modelfile and replace the FROM and ADAPTER commands with the corresponding blob hashes.
-   * @param modelfile {string} - The modelfile content
-   * @param mfDir {string} - The directory of the modelfile
-   * @private @internal
-   */
   private async parseModelfile(
-    modelfile: string,
-    mfDir: string = process.cwd(),
+      modelfile: string,
+      mfDir: string = process.cwd(),
   ): Promise<string> {
     const out: string[] = []
     const lines = modelfile.split('\n')
@@ -56,12 +47,6 @@ export class Ollama extends OllamaBrowser {
     return out.join('\n')
   }
 
-  /**
-   * Resolve the path to an absolute path.
-   * @param inputPath {string} - The input path
-   * @param mfDir {string} - The directory of the modelfile
-   * @private @internal
-   */
   private resolvePath(inputPath, mfDir) {
     if (inputPath.startsWith('~')) {
       return join(homedir(), inputPath.slice(1))
@@ -69,12 +54,6 @@ export class Ollama extends OllamaBrowser {
     return resolve(mfDir, inputPath)
   }
 
-  /**
-   * checks if a file exists
-   * @param path {string} - The path to the file
-   * @private @internal
-   * @returns {Promise<boolean>} - Whether the file exists or not
-   */
   private async fileExists(path: string): Promise<boolean> {
     try {
       await promises.access(path)
@@ -86,15 +65,11 @@ export class Ollama extends OllamaBrowser {
 
   private async createBlob(path: string): Promise<string> {
     if (typeof ReadableStream === 'undefined') {
-      // Not all fetch implementations support streaming
-      // TODO: support non-streaming uploads
       throw new Error('Streaming uploads are not supported in this environment.')
     }
 
-    // Create a stream for reading the file
     const fileStream = createReadStream(path)
 
-    // Compute the SHA256 digest
     const sha256sum = await new Promise<string>((resolve, reject) => {
       const hash = createHash('sha256')
       fileStream.on('data', (data) => hash.update(data))
@@ -105,30 +80,37 @@ export class Ollama extends OllamaBrowser {
     const digest = `sha256:${sha256sum}`
 
     try {
-      await utils.head(this.fetch, `${this.config.host}/api/blobs/${digest}`)
+      await utils.head(this.fetch, `${this.config.host}/api/blobs/${digest}`, {
+        headers: { 'Authorization': `Bearer ${this.config.apiKey}` }
+      })
     } catch (e) {
       if (e instanceof Error && e.message.includes('404')) {
-        // Create a new readable stream for the fetch request
         const readableStream = new ReadableStream({
           start(controller) {
             fileStream.on('data', (chunk) => {
-              controller.enqueue(chunk) // Enqueue the chunk directly
+              controller.enqueue(chunk)
             })
 
             fileStream.on('end', () => {
-              controller.close() // Close the stream when the file ends
+              controller.close()
             })
 
             fileStream.on('error', (err) => {
-              controller.error(err) // Propagate errors to the stream
+              controller.error(err)
             })
           },
         })
 
         await utils.post(
-          this.fetch,
-          `${this.config.host}/api/blobs/${digest}`,
-          readableStream,
+            this.fetch,
+            `${this.config.host}/api/blobs/${digest}`,
+            readableStream,
+            {
+              headers: {
+                'Authorization': `Bearer ${this.config.apiKey}`,
+                'Content-Type': 'application/octet-stream',  // Assuming it's an octet-stream for binary data
+              }
+            }
         )
       } else {
         throw e
@@ -139,19 +121,19 @@ export class Ollama extends OllamaBrowser {
   }
 
   create(
-    request: CreateRequest & { stream: true },
+      request: CreateRequest & { stream: true },
   ): Promise<AbortableAsyncIterator<ProgressResponse>>
   create(request: CreateRequest & { stream?: false }): Promise<ProgressResponse>
 
   async create(
-    request: CreateRequest,
+      request: CreateRequest,
   ): Promise<ProgressResponse | AbortableAsyncIterator<ProgressResponse>> {
     let modelfileContent = ''
     if (request.path) {
       modelfileContent = await promises.readFile(request.path, { encoding: 'utf8' })
       modelfileContent = await this.parseModelfile(
-        modelfileContent,
-        dirname(request.path),
+          modelfileContent,
+          dirname(request.path),
       )
     } else if (request.modelfile) {
       modelfileContent = await this.parseModelfile(request.modelfile)
@@ -160,7 +142,6 @@ export class Ollama extends OllamaBrowser {
     }
     request.modelfile = modelfileContent
 
-    // check stream here so that typescript knows which overload to use
     if (request.stream) {
       return super.create(request as CreateRequest & { stream: true })
     } else {
@@ -171,5 +152,4 @@ export class Ollama extends OllamaBrowser {
 
 export default new Ollama()
 
-// export all types from the main entry point so that packages importing types dont need to specify paths
 export * from './interfaces.js'

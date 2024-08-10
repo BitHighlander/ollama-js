@@ -1,14 +1,10 @@
 import { version } from './version.js'
 import type { ErrorResponse, Fetch } from './interfaces.js'
 
-/**
- * An error class for response errors.
- * @extends Error
- */
 class ResponseError extends Error {
   constructor(
-    public error: string,
-    public status_code: number,
+      public error: string,
+      public status_code: number,
   ) {
     super(error)
     this.name = 'ResponseError'
@@ -19,9 +15,6 @@ class ResponseError extends Error {
   }
 }
 
-/**
- * An AsyncIterator which can be aborted
- */
 export class AbortableAsyncIterator<T extends object> {
   private readonly abortController: AbortController
   private readonly itr: AsyncGenerator<T | ErrorResponse>
@@ -43,8 +36,6 @@ export class AbortableAsyncIterator<T extends object> {
         throw new Error(message.error)
       }
       yield message
-      // message will be done in the case of chat and generate
-      // message will be success in the case of a progress response (pull, push, create)
       if ((message as any).done || (message as any).status === 'success') {
         this.doneCallback()
         return
@@ -54,11 +45,6 @@ export class AbortableAsyncIterator<T extends object> {
   }
 }
 
-/**
- * Checks if the response is ok, if not throws an error.
- * If the response is not ok, it will try to parse the response as JSON and use the error field as the error message.
- * @param response {Response} - The response object to check
- */
 const checkOk = async (response: Response): Promise<void> => {
   if (response.ok) {
     return
@@ -86,30 +72,19 @@ const checkOk = async (response: Response): Promise<void> => {
   throw new ResponseError(message, response.status)
 }
 
-/**
- * Returns the platform string based on the environment.
- * @returns {string} - The platform string
- */
 function getPlatform(): string {
   if (typeof window !== 'undefined' && window.navigator) {
     return `${window.navigator.platform.toLowerCase()} Browser/${navigator.userAgent};`
   } else if (typeof process !== 'undefined') {
     return `${process.arch} ${process.platform} Node.js/${process.version}`
   }
-  return '' // unknown
+  return ''
 }
 
-/**
- * A wrapper around fetch that adds default headers.
- * @param fetch {Fetch} - The fetch function to use
- * @param url {string} - The URL to fetch
- * @param options {RequestInit} - The fetch options
- * @returns {Promise<Response>} - The fetch response
- */
 const fetchWithHeaders = async (
-  fetch: Fetch,
-  url: string,
-  options: RequestInit = {},
+    fetch: Fetch,
+    url: string,
+    options: any,
 ): Promise<Response> => {
   const defaultHeaders = {
     'Content-Type': 'application/json',
@@ -125,51 +100,45 @@ const fetchWithHeaders = async (
     ...defaultHeaders,
     ...options.headers,
   }
-
+  console.log('url:', url)
+  console.log('options:', options)
   return fetch(url, options)
 }
 
-/**
- * A wrapper around the get method that adds default headers.
- * @param fetch {Fetch} - The fetch function to use
- * @param host {string} - The host to fetch
- * @returns {Promise<Response>} - The fetch response
- */
-export const get = async (fetch: Fetch, host: string): Promise<Response> => {
-  const response = await fetchWithHeaders(fetch, host)
-
-  await checkOk(response)
-
-  return response
-}
-/**
- * A wrapper around the head method that adds default headers.
- * @param fetch {Fetch} - The fetch function to use
- * @param host {string} - The host to fetch
- * @returns {Promise<Response>} - The fetch response
- */
-export const head = async (fetch: Fetch, host: string): Promise<Response> => {
+export const get = async (
+    fetch: Fetch,
+    host: string,
+    headers?: Record<string, string>
+): Promise<Response> => {
   const response = await fetchWithHeaders(fetch, host, {
-    method: 'HEAD',
+    headers,
   })
 
   await checkOk(response)
 
   return response
 }
-/**
- * A wrapper around the post method that adds default headers.
- * @param fetch {Fetch} - The fetch function to use
- * @param host {string} - The host to fetch
- * @param data {Record<string, unknown> | BodyInit} - The data to send
- * @param options {{ signal: AbortSignal }} - The fetch options
- * @returns {Promise<Response>} - The fetch response
- */
+
+export const head = async (
+    fetch: Fetch,
+    host: string,
+    headers?: { headers: { Authorization: string } }
+): Promise<Response> => {
+  const response = await fetchWithHeaders(fetch, host, {
+    method: 'HEAD',
+    headers,
+  })
+
+  await checkOk(response)
+
+  return response
+}
+
 export const post = async (
-  fetch: Fetch,
-  host: string,
-  data?: Record<string, unknown> | BodyInit,
-  options?: { signal: AbortSignal },
+    fetch: Fetch,
+    host: string,
+    data?: Record<string, unknown> | BodyInit,
+    options?: { signal?: AbortSignal, headers?: Record<string, string> },
 ): Promise<Response> => {
   const isRecord = (input: any): input is Record<string, unknown> => {
     return input !== null && typeof input === 'object' && !Array.isArray(input)
@@ -181,40 +150,33 @@ export const post = async (
     method: 'POST',
     body: formattedData,
     signal: options?.signal,
+    headers: options?.headers,
   })
 
   await checkOk(response)
 
   return response
 }
-/**
- * A wrapper around the delete method that adds default headers.
- * @param fetch {Fetch} - The fetch function to use
- * @param host {string} - The host to fetch
- * @param data {Record<string, unknown>} - The data to send
- * @returns {Promise<Response>} - The fetch response
- */
+
 export const del = async (
-  fetch: Fetch,
-  host: string,
-  data?: Record<string, unknown>,
+    fetch: Fetch,
+    host: string,
+    data?: Record<string, unknown>,
+    headers?: Record<string, string>
 ): Promise<Response> => {
   const response = await fetchWithHeaders(fetch, host, {
     method: 'DELETE',
     body: JSON.stringify(data),
+    headers,
   })
 
   await checkOk(response)
 
   return response
 }
-/**
- * Parses a ReadableStream of Uint8Array into JSON objects.
- * @param itr {ReadableStream<Uint8Array>} - The stream to parse
- * @returns {AsyncGenerator<T>} - The parsed JSON objects
- */
+
 export const parseJSON = async function* <T = unknown>(
-  itr: ReadableStream<Uint8Array>,
+    itr: ReadableStream<Uint8Array>,
 ): AsyncGenerator<T> {
   const decoder = new TextDecoder('utf-8')
   let buffer = ''
@@ -251,20 +213,15 @@ export const parseJSON = async function* <T = unknown>(
     }
   }
 }
-/**
- * Formats the host string to include the protocol and port.
- * @param host {string} - The host string to format
- * @returns {string} - The formatted host string
- */
+
 export const formatHost = (host: string): string => {
   if (!host) {
-    return 'http://127.0.0.1:11434'
+    return 'http://127.0.0.1:1646'
   }
 
   let isExplicitProtocol = host.includes('://')
 
   if (host.startsWith(':')) {
-    // if host starts with ':', prepend the default hostname
     host = `http://127.0.0.1${host}`
     isExplicitProtocol = true
   }
@@ -280,13 +237,11 @@ export const formatHost = (host: string): string => {
     if (!isExplicitProtocol) {
       port = '11434'
     } else {
-      // Assign default ports based on the protocol
       port = url.protocol === 'https:' ? '443' : '80'
     }
   }
 
   let formattedHost = `${url.protocol}//${url.hostname}:${port}${url.pathname}`
-  // remove trailing slashes
   if (formattedHost.endsWith('/')) {
     formattedHost = formattedHost.slice(0, -1)
   }
